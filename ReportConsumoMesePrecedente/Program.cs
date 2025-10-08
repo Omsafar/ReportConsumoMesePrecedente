@@ -12,7 +12,7 @@ namespace ReportConsumoMesePrecedente;
 internal static class Program
 {
     private const string ConnString =
-        "Server=srv2016app02\\sgam;Database=PARATORI;User Id=sapara;Password=S@p4ra;Encrypt=True;TrustServerCertificate=True;";
+        "Server=srv2016app02\\sgam;Database=PARATORI;User Id=sapara;Password=S@p4ra;Encrypt=True;TrustServerCertificate=True;"; //
 
     private const string ConnStringSgam =
         "Server=srv2016app02\\sgam;Database=SGAM;User Id=sapara;Password=S@p4ra;Encrypt=True;TrustServerCertificate=True;";
