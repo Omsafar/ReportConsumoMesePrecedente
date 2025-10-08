@@ -143,7 +143,8 @@ internal static class Program
             @"SELECT VEICOLO,
                      PRODOTTO,
                      LITRI,
-                     KG
+                     KG,
+                     CONTROVALORE_UNITARIO
               FROM [Sgam].[dbo].[RisorseRifornimentiRilevazioni]
               WHERE DATA_ORA >= @startDate AND DATA_ORA < @endDate";
 
@@ -156,6 +157,7 @@ internal static class Program
         var ordinalProdotto = reader.GetOrdinal("PRODOTTO");
         var ordinalLitri = reader.GetOrdinal("LITRI");
         var ordinalKg = reader.GetOrdinal("KG");
+        var ordinalControvaloreUnitario = reader.GetOrdinal("CONTROVALORE_UNITARIO");
 
         while (await reader.ReadAsync())
         {
@@ -181,16 +183,28 @@ internal static class Program
 
             aggregate.RegisterProduct(product);
 
+            double? liters = null;
             if (!reader.IsDBNull(ordinalLitri))
             {
-                var liters = Convert.ToDouble(reader.GetValue(ordinalLitri), CultureInfo.InvariantCulture);
-                aggregate.AddLiters(product, liters);
+                liters = Convert.ToDouble(reader.GetValue(ordinalLitri), CultureInfo.InvariantCulture);
+                aggregate.AddLiters(product, liters.Value);
             }
 
+            double? kg = null;
             if (!reader.IsDBNull(ordinalKg))
             {
-                var kg = Convert.ToDouble(reader.GetValue(ordinalKg), CultureInfo.InvariantCulture);
-                aggregate.AddKg(product, kg);
+                kg = Convert.ToDouble(reader.GetValue(ordinalKg), CultureInfo.InvariantCulture);
+                aggregate.AddKg(product, kg.Value);
+            }
+
+            if (!reader.IsDBNull(ordinalControvaloreUnitario))
+            {
+                var unitValue = Convert.ToDouble(reader.GetValue(ordinalControvaloreUnitario), CultureInfo.InvariantCulture);
+                var quantityForCost = GetQuantityForCost(product, liters, kg);
+                if (quantityForCost.HasValue && quantityForCost.Value > 0 && unitValue > 0)
+                {
+                    aggregate.AddCost(product, quantityForCost.Value * unitValue);
+                }
             }
         }
 
@@ -207,10 +221,10 @@ internal static class Program
         var dieselSheet = workbook.AddWorksheet("Diesel");
         var benzinaSheet = workbook.AddWorksheet("Benzina");
 
-        WriteSheetHeader(metanoSheet, "Litri Benzina (BE)", "Kg totali riforniti (Risorse)");
-        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali riforniti (Risorse)");
-        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali riforniti (Risorse)");
-        FormatNumberColumns(metanoSheet);
+        const string costColumnTitle = "Costo totale rifornimenti (Risorse)";
+        WriteSheetHeader(metanoSheet, "Litri Benzina (BE)", "Kg totali riforniti (Risorse)", costColumnTitle);
+        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali riforniti (Risorse)", costColumnTitle);
+        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali riforniti (Risorse)", costColumnTitle); FormatNumberColumns(metanoSheet);
         FormatNumberColumns(dieselSheet);
         FormatNumberColumns(benzinaSheet);
 
@@ -256,6 +270,8 @@ internal static class Program
                 var otherFuelLiters = aggregateFuel.GetTotalLitersExcluding(MetanoProducts);
                 var totalKgValue = hasMetano ? (double?)totalKg : null;
                 var otherFuelValue = otherFuelLiters > 0 ? (double?)otherFuelLiters : null;
+                var metanoCost = aggregateFuel.GetTotalCost(MetanoProducts);
+                var metanoCostValue = metanoCost > 0 ? (double?)metanoCost : null;
                 WriteRow(
                     metanoSheet,
                     currentRowMetano++,
@@ -265,7 +281,8 @@ internal static class Program
                     otherFuelValue,
                     totalKm,
                     totalConsumptionLiters,
-                    totalKgValue);
+                    totalKgValue,
+                    metanoCostValue);
                 continue;
             }
 
@@ -276,6 +293,8 @@ internal static class Program
                 var adBlueLiters = aggregateFuel.GetTotalLiters(AdBlueProduct);
                 var dieselTotal = hasDiesel ? (double?)dieselLiters : null;
                 var adBlueValue = adBlueLiters > 0 ? (double?)adBlueLiters : null;
+                var dieselCost = aggregateFuel.GetTotalCost(DieselProducts);
+                var dieselCostValue = dieselCost > 0 ? (double?)dieselCost : null;
                 WriteRow(
                     dieselSheet,
                     currentRowDiesel++,
@@ -285,7 +304,8 @@ internal static class Program
                     adBlueValue,
                     totalKm,
                     totalConsumptionLiters,
-                    dieselTotal);
+                    dieselTotal,
+                    dieselCostValue);
                 continue;
             }
 
@@ -294,6 +314,8 @@ internal static class Program
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
                 double? benzinaAverage = totalKmForAverage > 0 && benzinaLiters > 0 ? (double?)(totalKmForAverage / benzinaLiters) : null;
                 var benzinaTotal = hasBenzina ? (double?)benzinaLiters : null;
+                var benzinaCost = aggregateFuel.GetTotalCost(BenzinaProduct);
+                var benzinaCostValue = benzinaCost > 0 ? (double?)benzinaCost : null;
                 WriteRow(
                     benzinaSheet,
                     currentRowBenzina++,
@@ -303,7 +325,8 @@ internal static class Program
                     null,
                     totalKm,
                     totalConsumptionLiters,
-                    benzinaTotal);
+                    benzinaTotal,
+                    benzinaCostValue);
             }
         }
 
@@ -314,7 +337,11 @@ internal static class Program
         workbook.SaveAs(outputPath);
     }
 
-    private static void WriteSheetHeader(IXLWorksheet sheet, string extraColumnTitle, string replenishmentTotalTitle)
+    private static void WriteSheetHeader(
+        IXLWorksheet sheet,
+        string extraColumnTitle,
+        string replenishmentTotalTitle,
+        string costColumnTitle)
     {
         sheet.Cell(1, 1).Value = "Veicolo";
         sheet.Cell(1, 2).Value = "Media km/l (DatiConsumo)";
@@ -329,6 +356,7 @@ internal static class Program
         {
             sheet.Cell(1, 7).Value = replenishmentTotalTitle;
         }
+        sheet.Cell(1, 8).Value = costColumnTitle;
         sheet.Row(1).Style.Font.SetBold();
     }
 
@@ -340,6 +368,32 @@ internal static class Program
         sheet.Column(5).Style.NumberFormat.SetFormat("0.00");
         sheet.Column(6).Style.NumberFormat.SetFormat("0.00");
         sheet.Column(7).Style.NumberFormat.SetFormat("0.00");
+        sheet.Column(8).Style.NumberFormat.SetFormat("0.00");
+    }
+
+    private static double? GetQuantityForCost(string product, double? liters, double? kg)
+    {
+        if (string.IsNullOrEmpty(product))
+        {
+            return liters ?? kg;
+        }
+
+        if (MetanoProducts.Contains(product))
+        {
+            return kg ?? liters;
+        }
+
+        if (DieselProducts.Contains(product) || string.Equals(product, BenzinaProduct, StringComparison.OrdinalIgnoreCase))
+        {
+            return liters ?? kg;
+        }
+
+        if (string.Equals(product, AdBlueProduct, StringComparison.OrdinalIgnoreCase))
+        {
+            return liters ?? kg;
+        }
+
+        return liters ?? kg;
     }
 
     private static void WriteRow(
@@ -351,7 +405,8 @@ internal static class Program
         double? extraValue,
         double? totalKm,
         double? totalConsumptionLiters,
-        double? replenishmentTotal)
+        double? replenishmentTotal,
+        double? totalCost)
     {
         sheet.Cell(row, 1).Value = veicolo;
         if (averageConsumption.HasValue)
@@ -382,6 +437,12 @@ internal static class Program
         if (replenishmentTotal.HasValue)
         {
             sheet.Cell(row, 7).Value = replenishmentTotal.Value;
+        }
+
+
+        if (totalCost.HasValue)
+        {
+            sheet.Cell(row, 8).Value = totalCost.Value;
         }
     }
 
@@ -463,6 +524,7 @@ internal static class Program
         private readonly Dictionary<string, double> _litersByProduct = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, double> _kgByProduct = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _products = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, double> _costByProduct = new(StringComparer.OrdinalIgnoreCase);
 
         internal void RegisterProduct(string product)
         {
@@ -508,6 +570,18 @@ internal static class Program
             }
         }
 
+        internal void AddCost(string product, double cost)
+        {
+            if (_costByProduct.TryGetValue(product, out var existing))
+            {
+                _costByProduct[product] = existing + cost;
+            }
+            else
+            {
+                _costByProduct[product] = cost;
+            }
+        }
+
         internal double GetTotalLiters(string product)
         {
             return _litersByProduct.TryGetValue(product, out var value) ? value : 0;
@@ -542,15 +616,38 @@ internal static class Program
             return total;
         }
 
-        // dentro FuelAggregate
         internal double GetTotalKg(IEnumerable<string> products)
         {
             double total = 0;
-            foreach (var p in products)
-                if (_kgByProduct.TryGetValue(p, out var v)) total += v;
+            foreach (var product in products)
+            {
+                if (_kgByProduct.TryGetValue(product, out var value))
+                {
+                    total += value;
+                }
+            }
+
             return total;
         }
 
+        internal double GetTotalCost(string product)
+        {
+            return _costByProduct.TryGetValue(product, out var value) ? value : 0;
+        }
+
+        internal double GetTotalCost(IEnumerable<string> products)
+        {
+            double total = 0;
+            foreach (var product in products)
+            {
+                if (_costByProduct.TryGetValue(product, out var value))
+                {
+                    total += value;
+                }
+            }
+
+            return total;
+        }
     }
 
     private static int SafeGetOrdinal(SqlDataReader reader, string columnName)
