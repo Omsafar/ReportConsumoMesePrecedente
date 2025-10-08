@@ -26,9 +26,11 @@ internal static class Program
     {
         try
         {
-            var (startDate, endDate) = GetPreviousMonthRange(DateTime.Today);
+            var today = DateTime.Today;
+            var (startDate, endDate) = GetPreviousMonthRange(today);
             var consumptions = await LoadConsumptionAsync(startDate, endDate);
             var fuelData = await LoadFuelDataAsync(startDate, endDate);
+            var vehicleFuelTypes = await LoadVehicleFuelTypesAsync(today);
 
             if (consumptions.Count == 0)
             {
@@ -38,7 +40,7 @@ internal static class Program
 
             Console.WriteLine($"Intervallo analizzato: {startDate:yyyy-MM-dd} - {endDate.AddDays(-1):yyyy-MM-dd}");
             var outputPath = Path.Combine(AppContext.BaseDirectory, "ReportConsumi.xlsx");
-            GenerateReport(consumptions, fuelData, outputPath);
+            GenerateReport(consumptions, fuelData, vehicleFuelTypes, outputPath);
             Console.WriteLine($"Report generato correttamente: {outputPath}");
         }
         catch (Exception ex)
@@ -211,9 +213,68 @@ internal static class Program
         return result;
     }
 
+    private static async Task<Dictionary<string, string>> LoadVehicleFuelTypesAsync(DateTime date)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        await using var connection = new SqlConnection(ConnString);
+        await connection.OpenAsync();
+
+        await using var command = new SqlCommand("Stp_AnagraficaMezziUnica", connection)
+        {
+            CommandType = CommandType.StoredProcedure
+        };
+
+        command.Parameters.Add(new SqlParameter("@Tipo", SqlDbType.Int) { Value = 7 });
+        command.Parameters.Add(new SqlParameter("@MostraTabella", SqlDbType.Int) { Value = 1 });
+        command.Parameters.Add(new SqlParameter("@Alienati", SqlDbType.Char, 1) { Value = "N" });
+        command.Parameters.Add(new SqlParameter("@Data", SqlDbType.VarChar, 8)
+        {
+            Value = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture)
+        });
+
+        await using var reader = await command.ExecuteReaderAsync();
+        var ordinalTarga = SafeGetOrdinal(reader, "Targa");
+        if (ordinalTarga < 0)
+        {
+            ordinalTarga = SafeGetOrdinal(reader, "TARGA");
+        }
+
+        var ordinalFuelType = SafeGetOrdinal(reader, "TIPO_CARABURANTE");
+        if (ordinalFuelType < 0)
+        {
+            ordinalFuelType = SafeGetOrdinal(reader, "TIPO_CARBURANTE");
+        }
+
+        if (ordinalTarga < 0 || ordinalFuelType < 0)
+        {
+            throw new InvalidOperationException(
+                "La stored procedure Stp_AnagraficaMezziUnica non restituisce le colonne attese Targa e TIPO_CARABURANTE.");
+        }
+
+        while (await reader.ReadAsync())
+        {
+            var targaRaw = reader.IsDBNull(ordinalTarga) ? null : reader.GetValue(ordinalTarga)?.ToString();
+            var fuelTypeRaw = reader.IsDBNull(ordinalFuelType) ? null : reader.GetValue(ordinalFuelType)?.ToString();
+
+            var targa = TrimToNull(targaRaw);
+            var fuelType = TrimToNull(fuelTypeRaw);
+
+            if (string.IsNullOrEmpty(targa) || string.IsNullOrEmpty(fuelType))
+            {
+                continue;
+            }
+
+            result[targa] = fuelType.ToUpperInvariant();
+        }
+
+        return result;
+    }
+
     private static void GenerateReport(
         Dictionary<string, VehicleConsumptionAggregate> consumptions,
         Dictionary<string, FuelAggregate> fuelData,
+        Dictionary<string, string> vehicleFuelTypes,
         string outputPath)
     {
         using var workbook = new XLWorkbook();
@@ -239,6 +300,12 @@ internal static class Program
 
         foreach (var vehicle in orderedVehicles)
         {
+            var fuelType = GetFuelTypeForVehicle(vehicle, vehicleFuelTypes);
+            if (string.IsNullOrEmpty(fuelType))
+            {
+                continue;
+            }
+
             FuelAggregate? aggregateFuel = null;
             if (!string.IsNullOrEmpty(vehicle.NumeroInterno) && fuelData.TryGetValue(vehicle.NumeroInterno, out var fuelByNumero))
             {
@@ -249,29 +316,44 @@ internal static class Program
                 aggregateFuel = fuelByTarga;
             }
 
-            if (aggregateFuel is null)
-            {
-                continue;
-            }
-
-            var hasMetano = aggregateFuel.HasAnyProduct(MetanoProducts);
-            var hasDiesel = aggregateFuel.HasAnyProduct(DieselProducts);
-            var hasBenzina = aggregateFuel.HasProduct(BenzinaProduct);
-
             var averageConsumption = vehicle.AverageConsumption;
             var totalKmForAverage = vehicle.TotalKm;
             var totalKm = vehicle.HasKmData ? (double?)vehicle.TotalKm : null;
             var totalConsumptionLiters = vehicle.HasConsumptionLiters ? (double?)vehicle.TotalConsumptionLiters : null;
 
-            if (hasMetano)
+            if (string.Equals(fuelType, "ME", StringComparison.OrdinalIgnoreCase))
             {
-                var totalKg = aggregateFuel.GetTotalKg(MetanoProducts);
-                double? metanoAverage = totalKmForAverage > 0 && totalKg > 0 ? (double?)(totalKmForAverage / totalKg) : null;
-                var otherFuelLiters = aggregateFuel.GetTotalLitersExcluding(MetanoProducts);
-                var totalKgValue = hasMetano ? (double?)totalKg : null;
-                var otherFuelValue = otherFuelLiters > 0 ? (double?)otherFuelLiters : null;
-                var metanoCost = aggregateFuel.GetTotalCost(MetanoProducts);
-                var metanoCostValue = metanoCost > 0 ? (double?)metanoCost : null;
+                double? metanoAverage = null;
+                double? otherFuelValue = null;
+                double? totalKgValue = null;
+                double? metanoCostValue = null;
+
+                if (aggregateFuel is not null)
+                {
+                    var totalKg = aggregateFuel.GetTotalKg(MetanoProducts);
+                    if (totalKmForAverage > 0 && totalKg > 0)
+                    {
+                        metanoAverage = totalKmForAverage / totalKg;
+                    }
+
+                    if (totalKg > 0)
+                    {
+                        totalKgValue = totalKg;
+                    }
+
+                    var otherFuelLiters = aggregateFuel.GetTotalLitersExcluding(MetanoProducts);
+                    if (otherFuelLiters > 0)
+                    {
+                        otherFuelValue = otherFuelLiters;
+                    }
+
+                    var metanoCost = aggregateFuel.GetTotalCost(MetanoProducts);
+                    if (metanoCost > 0)
+                    {
+                        metanoCostValue = metanoCost;
+                    }
+                }
+
                 WriteRow(
                     metanoSheet,
                     currentRowMetano++,
@@ -286,15 +368,39 @@ internal static class Program
                 continue;
             }
 
-            if (hasDiesel)
+            if (string.Equals(fuelType, "GA", StringComparison.OrdinalIgnoreCase))
             {
-                var dieselLiters = aggregateFuel.GetTotalLiters(DieselProducts);
-                double? dieselAverage = totalKmForAverage > 0 && dieselLiters > 0 ? (double?)(totalKmForAverage / dieselLiters) : null;
-                var adBlueLiters = aggregateFuel.GetTotalLiters(AdBlueProduct);
-                var dieselTotal = hasDiesel ? (double?)dieselLiters : null;
-                var adBlueValue = adBlueLiters > 0 ? (double?)adBlueLiters : null;
-                var dieselCost = aggregateFuel.GetTotalCost(DieselProducts);
-                var dieselCostValue = dieselCost > 0 ? (double?)dieselCost : null;
+                double? dieselAverage = null;
+                double? adBlueValue = null;
+                double? dieselTotal = null;
+                double? dieselCostValue = null;
+
+                if (aggregateFuel is not null)
+                {
+                    var dieselLiters = aggregateFuel.GetTotalLiters(DieselProducts);
+                    if (totalKmForAverage > 0 && dieselLiters > 0)
+                    {
+                        dieselAverage = totalKmForAverage / dieselLiters;
+                    }
+
+                    if (dieselLiters > 0)
+                    {
+                        dieselTotal = dieselLiters;
+                    }
+
+                    var adBlueLiters = aggregateFuel.GetTotalLiters(AdBlueProduct);
+                    if (adBlueLiters > 0)
+                    {
+                        adBlueValue = adBlueLiters;
+                    }
+
+                    var dieselCost = aggregateFuel.GetTotalCost(DieselProducts);
+                    if (dieselCost > 0)
+                    {
+                        dieselCostValue = dieselCost;
+                    }
+                }
+
                 WriteRow(
                     dieselSheet,
                     currentRowDiesel++,
@@ -309,13 +415,32 @@ internal static class Program
                 continue;
             }
 
-            if (hasBenzina)
+            if (string.Equals(fuelType, "BE", StringComparison.OrdinalIgnoreCase))
             {
-                var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
-                double? benzinaAverage = totalKmForAverage > 0 && benzinaLiters > 0 ? (double?)(totalKmForAverage / benzinaLiters) : null;
-                var benzinaTotal = hasBenzina ? (double?)benzinaLiters : null;
-                var benzinaCost = aggregateFuel.GetTotalCost(BenzinaProduct);
-                var benzinaCostValue = benzinaCost > 0 ? (double?)benzinaCost : null;
+                double? benzinaAverage = null;
+                double? benzinaTotal = null;
+                double? benzinaCostValue = null;
+
+                if (aggregateFuel is not null)
+                {
+                    var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
+                    if (totalKmForAverage > 0 && benzinaLiters > 0)
+                    {
+                        benzinaAverage = totalKmForAverage / benzinaLiters;
+                    }
+
+                    if (benzinaLiters > 0)
+                    {
+                        benzinaTotal = benzinaLiters;
+                    }
+
+                    var benzinaCost = aggregateFuel.GetTotalCost(BenzinaProduct);
+                    if (benzinaCost > 0)
+                    {
+                        benzinaCostValue = benzinaCost;
+                    }
+                }
+
                 WriteRow(
                     benzinaSheet,
                     currentRowBenzina++,
@@ -335,6 +460,23 @@ internal static class Program
         benzinaSheet.Columns().AdjustToContents();
 
         workbook.SaveAs(outputPath);
+    }
+
+    private static string? GetFuelTypeForVehicle(
+        VehicleConsumptionAggregate vehicle,
+        Dictionary<string, string> vehicleFuelTypes)
+    {
+        if (vehicle is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(vehicle.Targa) && vehicleFuelTypes.TryGetValue(vehicle.Targa, out var fuelType))
+        {
+            return fuelType;
+        }
+
+        return null;
     }
 
     private static void WriteSheetHeader(
