@@ -253,16 +253,16 @@ internal static class Program
             {
                 var totalKg = aggregateFuel.GetTotalKg(MetanoProducts);
                 double? metanoAverage = totalKmForAverage > 0 && totalKg > 0 ? (double?)(totalKmForAverage / totalKg) : null;
-                var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
+                var otherFuelLiters = aggregateFuel.GetTotalLitersExcluding(MetanoProducts);
                 var totalKgValue = hasMetano ? (double?)totalKg : null;
-                var benzinaValue = benzinaLiters > 0 ? (double?)benzinaLiters : null;
+                var otherFuelValue = otherFuelLiters > 0 ? (double?)otherFuelLiters : null;
                 WriteRow(
                     metanoSheet,
                     currentRowMetano++,
                     vehicle.DisplayName,
                     averageConsumption,
                     metanoAverage,
-                    benzinaValue,
+                    otherFuelValue,
                     totalKm,
                     totalConsumptionLiters,
                     totalKgValue);
@@ -521,6 +521,21 @@ internal static class Program
                 if (_litersByProduct.TryGetValue(product, out var value))
                 {
                     total += value;
+                }
+            }
+
+            return total;
+        }
+
+        internal double GetTotalLitersExcluding(IEnumerable<string> excludedProducts)
+        {
+            var exclusions = new HashSet<string>(excludedProducts, StringComparer.OrdinalIgnoreCase);
+            double total = 0;
+            foreach (var pair in _litersByProduct)
+            {
+                if (!exclusions.Contains(pair.Key))
+                {
+                    total += pair.Value;
                 }
             }
 
