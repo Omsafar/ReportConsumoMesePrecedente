@@ -18,7 +18,7 @@ internal static class Program
         "Server=srv2016app02\\sgam;Database=SGAM;User Id=sapara;Password=S@p4ra;Encrypt=True;TrustServerCertificate=True;";
 
     private static readonly HashSet<string> DieselProducts = new(StringComparer.OrdinalIgnoreCase) { "HVO", "GA", "DP" };
-    private const string MetanoProduct = "GN";
+    private static readonly HashSet<string> MetanoProducts = new(StringComparer.OrdinalIgnoreCase) { "GN", "GNL" };
     private const string BenzinaProduct = "BE";
     private const string AdBlueProduct = "AD";
 
@@ -68,7 +68,7 @@ internal static class Program
                      Data,
                      Km_Totali,
                      [Consumo_km/l] AS ConsumoKmPerLitro,
-                     Litri
+                     [Litri_Totali] AS Litri
               FROM [PARATORI].[dbo].[tbDatiConsumo]
               WHERE Data >= @startDate AND Data < @endDate";
 
@@ -240,7 +240,7 @@ internal static class Program
                 continue;
             }
 
-            var hasMetano = aggregateFuel.HasProduct(MetanoProduct);
+            var hasMetano = aggregateFuel.HasAnyProduct(MetanoProducts);
             var hasDiesel = aggregateFuel.HasAnyProduct(DieselProducts);
             var hasBenzina = aggregateFuel.HasProduct(BenzinaProduct);
 
@@ -251,7 +251,7 @@ internal static class Program
 
             if (hasMetano)
             {
-                var totalKg = aggregateFuel.GetTotalKg(MetanoProduct);
+                var totalKg = aggregateFuel.GetTotalKg(MetanoProducts);
                 double? metanoAverage = totalKmForAverage > 0 && totalKg > 0 ? (double?)(totalKmForAverage / totalKg) : null;
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
                 var totalKgValue = hasMetano ? (double?)totalKg : null;
@@ -527,10 +527,15 @@ internal static class Program
             return total;
         }
 
-        internal double GetTotalKg(string product)
+        // dentro FuelAggregate
+        internal double GetTotalKg(IEnumerable<string> products)
         {
-            return _kgByProduct.TryGetValue(product, out var value) ? value : 0;
+            double total = 0;
+            foreach (var p in products)
+                if (_kgByProduct.TryGetValue(p, out var v)) total += v;
+            return total;
         }
+
     }
 
     private static int SafeGetOrdinal(SqlDataReader reader, string columnName)
