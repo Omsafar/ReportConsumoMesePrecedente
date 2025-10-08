@@ -67,7 +67,8 @@ internal static class Program
                      Numero_Interno,
                      Data,
                      Km_Totali,
-                     [Consumo_km/l] AS ConsumoKmPerLitro
+                     [Consumo_km/l] AS ConsumoKmPerLitro,
+                     Litri
               FROM [PARATORI].[dbo].[tbDatiConsumo]
               WHERE Data >= @startDate AND Data < @endDate";
 
@@ -80,6 +81,7 @@ internal static class Program
         var ordinalTarga = reader.GetOrdinal("Targa");
         var ordinalKmTotali = reader.GetOrdinal("Km_Totali");
         var ordinalConsumo = reader.GetOrdinal("ConsumoKmPerLitro");
+        var ordinalLitri = SafeGetOrdinal(reader, "Litri");
 
         while (await reader.ReadAsync())
         {
@@ -106,7 +108,8 @@ internal static class Program
 
             if (!reader.IsDBNull(ordinalKmTotali))
             {
-                aggregate.TotalKm += Convert.ToDouble(reader.GetValue(ordinalKmTotali), CultureInfo.InvariantCulture);
+                var km = Convert.ToDouble(reader.GetValue(ordinalKmTotali), CultureInfo.InvariantCulture);
+                aggregate.AddKilometers(km);
             }
 
             if (!reader.IsDBNull(ordinalConsumo))
@@ -117,6 +120,12 @@ internal static class Program
                     aggregate.ConsumptionSum += consumo;
                     aggregate.ConsumptionCount++;
                 }
+            }
+
+            if (ordinalLitri >= 0 && !reader.IsDBNull(ordinalLitri))
+            {
+                var liters = Convert.ToDouble(reader.GetValue(ordinalLitri), CultureInfo.InvariantCulture);
+                aggregate.AddConsumptionLiters(liters);
             }
         }
 
@@ -198,9 +207,9 @@ internal static class Program
         var dieselSheet = workbook.AddWorksheet("Diesel");
         var benzinaSheet = workbook.AddWorksheet("Benzina");
 
-        WriteSheetHeader(metanoSheet, "Litri Benzina (BE)");
-        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)");
-        WriteSheetHeader(benzinaSheet, "Litri Extra");
+        WriteSheetHeader(metanoSheet, "Litri Benzina (BE)", "Kg totali riforniti (Risorse)");
+        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali riforniti (Risorse)");
+        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali riforniti (Risorse)");
         FormatNumberColumns(metanoSheet);
         FormatNumberColumns(dieselSheet);
         FormatNumberColumns(benzinaSheet);
@@ -236,31 +245,65 @@ internal static class Program
             var hasBenzina = aggregateFuel.HasProduct(BenzinaProduct);
 
             var averageConsumption = vehicle.AverageConsumption;
-            var totalKm = vehicle.TotalKm;
+            var totalKmForAverage = vehicle.TotalKm;
+            var totalKm = vehicle.HasKmData ? (double?)vehicle.TotalKm : null;
+            var totalConsumptionLiters = vehicle.HasConsumptionLiters ? (double?)vehicle.TotalConsumptionLiters : null;
 
             if (hasMetano)
             {
                 var totalKg = aggregateFuel.GetTotalKg(MetanoProduct);
-                double? metanoAverage = totalKm > 0 ? (double?)(totalKm / totalKg) : null;
+                double? metanoAverage = totalKmForAverage > 0 && totalKg > 0 ? (double?)(totalKmForAverage / totalKg) : null;
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
-                WriteRow(metanoSheet, currentRowMetano++, vehicle.DisplayName, averageConsumption, metanoAverage, benzinaLiters);
+                var totalKgValue = hasMetano ? (double?)totalKg : null;
+                var benzinaValue = benzinaLiters > 0 ? (double?)benzinaLiters : null;
+                WriteRow(
+                    metanoSheet,
+                    currentRowMetano++,
+                    vehicle.DisplayName,
+                    averageConsumption,
+                    metanoAverage,
+                    benzinaValue,
+                    totalKm,
+                    totalConsumptionLiters,
+                    totalKgValue);
                 continue;
             }
 
             if (hasDiesel)
             {
                 var dieselLiters = aggregateFuel.GetTotalLiters(DieselProducts);
-                double? dieselAverage = totalKm > 0 ? (double?)(totalKm / dieselLiters) : null;
+                double? dieselAverage = totalKmForAverage > 0 && dieselLiters > 0 ? (double?)(totalKmForAverage / dieselLiters) : null;
                 var adBlueLiters = aggregateFuel.GetTotalLiters(AdBlueProduct);
-                WriteRow(dieselSheet, currentRowDiesel++, vehicle.DisplayName, averageConsumption, dieselAverage, adBlueLiters);
+                var dieselTotal = hasDiesel ? (double?)dieselLiters : null;
+                var adBlueValue = adBlueLiters > 0 ? (double?)adBlueLiters : null;
+                WriteRow(
+                    dieselSheet,
+                    currentRowDiesel++,
+                    vehicle.DisplayName,
+                    averageConsumption,
+                    dieselAverage,
+                    adBlueValue,
+                    totalKm,
+                    totalConsumptionLiters,
+                    dieselTotal);
                 continue;
             }
 
             if (hasBenzina)
             {
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
-                double? benzinaAverage = totalKm > 0 ? (double?)(totalKm / benzinaLiters) : null;
-                WriteRow(benzinaSheet, currentRowBenzina++, vehicle.DisplayName, averageConsumption, benzinaAverage, null);
+                double? benzinaAverage = totalKmForAverage > 0 && benzinaLiters > 0 ? (double?)(totalKmForAverage / benzinaLiters) : null;
+                var benzinaTotal = hasBenzina ? (double?)benzinaLiters : null;
+                WriteRow(
+                    benzinaSheet,
+                    currentRowBenzina++,
+                    vehicle.DisplayName,
+                    averageConsumption,
+                    benzinaAverage,
+                    null,
+                    totalKm,
+                    totalConsumptionLiters,
+                    benzinaTotal);
             }
         }
 
@@ -271,7 +314,7 @@ internal static class Program
         workbook.SaveAs(outputPath);
     }
 
-    private static void WriteSheetHeader(IXLWorksheet sheet, string extraColumnTitle)
+    private static void WriteSheetHeader(IXLWorksheet sheet, string extraColumnTitle, string replenishmentTotalTitle)
     {
         sheet.Cell(1, 1).Value = "Veicolo";
         sheet.Cell(1, 2).Value = "Media km/l (DatiConsumo)";
@@ -279,6 +322,12 @@ internal static class Program
         if (!string.IsNullOrEmpty(extraColumnTitle))
         {
             sheet.Cell(1, 4).Value = extraColumnTitle;
+        }
+        sheet.Cell(1, 5).Value = "Km totali (DatiConsumo)";
+        sheet.Cell(1, 6).Value = "Litri totali (DatiConsumo)";
+        if (!string.IsNullOrEmpty(replenishmentTotalTitle))
+        {
+            sheet.Cell(1, 7).Value = replenishmentTotalTitle;
         }
         sheet.Row(1).Style.Font.SetBold();
     }
@@ -288,9 +337,21 @@ internal static class Program
         sheet.Column(2).Style.NumberFormat.SetFormat("0.00");
         sheet.Column(3).Style.NumberFormat.SetFormat("0.000");
         sheet.Column(4).Style.NumberFormat.SetFormat("0.00");
+        sheet.Column(5).Style.NumberFormat.SetFormat("0.00");
+        sheet.Column(6).Style.NumberFormat.SetFormat("0.00");
+        sheet.Column(7).Style.NumberFormat.SetFormat("0.00");
     }
 
-    private static void WriteRow(IXLWorksheet sheet, int row, string veicolo, double? averageConsumption, double? fuelAverage, double? extraLiters)
+    private static void WriteRow(
+        IXLWorksheet sheet,
+        int row,
+        string veicolo,
+        double? averageConsumption,
+        double? fuelAverage,
+        double? extraValue,
+        double? totalKm,
+        double? totalConsumptionLiters,
+        double? replenishmentTotal)
     {
         sheet.Cell(row, 1).Value = veicolo;
         if (averageConsumption.HasValue)
@@ -303,9 +364,24 @@ internal static class Program
             sheet.Cell(row, 3).Value = fuelAverage.Value;
         }
 
-        if (extraLiters.HasValue)
+        if (extraValue.HasValue)
         {
-            sheet.Cell(row, 4).Value = extraLiters.Value;
+            sheet.Cell(row, 4).Value = extraValue.Value;
+        }
+
+        if (totalKm.HasValue)
+        {
+            sheet.Cell(row, 5).Value = totalKm.Value;
+        }
+
+        if (totalConsumptionLiters.HasValue)
+        {
+            sheet.Cell(row, 6).Value = totalConsumptionLiters.Value;
+        }
+
+        if (replenishmentTotal.HasValue)
+        {
+            sheet.Cell(row, 7).Value = replenishmentTotal.Value;
         }
     }
 
@@ -329,7 +405,10 @@ internal static class Program
 
         internal string? NumeroInterno { get; private set; }
         internal string? Targa { get; private set; }
-        internal double TotalKm { get; set; }
+        internal double TotalKm { get; private set; }
+        internal bool HasKmData { get; private set; }
+        internal double TotalConsumptionLiters { get; private set; }
+        internal bool HasConsumptionLiters { get; private set; }
         internal double ConsumptionSum { get; set; }
         internal int ConsumptionCount { get; set; }
 
@@ -364,6 +443,18 @@ internal static class Program
             {
                 Targa ??= targa;
             }
+        }
+
+        internal void AddKilometers(double kilometers)
+        {
+            TotalKm += kilometers;
+            HasKmData = true;
+        }
+
+        internal void AddConsumptionLiters(double liters)
+        {
+            TotalConsumptionLiters += liters;
+            HasConsumptionLiters = true;
         }
     }
 
@@ -439,6 +530,18 @@ internal static class Program
         internal double GetTotalKg(string product)
         {
             return _kgByProduct.TryGetValue(product, out var value) ? value : 0;
+        }
+    }
+
+    private static int SafeGetOrdinal(SqlDataReader reader, string columnName)
+    {
+        try
+        {
+            return reader.GetOrdinal(columnName);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return -1;
         }
     }
 }
