@@ -241,7 +241,7 @@ internal static class Program
             if (hasMetano)
             {
                 var totalKg = aggregateFuel.GetTotalKg(MetanoProduct);
-                var metanoAverage = totalKm > 0 ? totalKg / totalKm : null;
+                double? metanoAverage = totalKm > 0 ? (double?)(totalKm / totalKg) : null;
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
                 WriteRow(metanoSheet, currentRowMetano++, vehicle.DisplayName, averageConsumption, metanoAverage, benzinaLiters);
                 continue;
@@ -250,7 +250,7 @@ internal static class Program
             if (hasDiesel)
             {
                 var dieselLiters = aggregateFuel.GetTotalLiters(DieselProducts);
-                var dieselAverage = totalKm > 0 ? dieselLiters / totalKm : null;
+                double? dieselAverage = totalKm > 0 ? (double?)(totalKm / dieselLiters) : null;
                 var adBlueLiters = aggregateFuel.GetTotalLiters(AdBlueProduct);
                 WriteRow(dieselSheet, currentRowDiesel++, vehicle.DisplayName, averageConsumption, dieselAverage, adBlueLiters);
                 continue;
@@ -259,7 +259,7 @@ internal static class Program
             if (hasBenzina)
             {
                 var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
-                var benzinaAverage = totalKm > 0 ? benzinaLiters / totalKm : null;
+                double? benzinaAverage = totalKm > 0 ? (double?)(totalKm / benzinaLiters) : null;
                 WriteRow(benzinaSheet, currentRowBenzina++, vehicle.DisplayName, averageConsumption, benzinaAverage, null);
             }
         }
