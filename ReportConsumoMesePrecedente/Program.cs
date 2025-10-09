@@ -280,14 +280,15 @@ internal static class Program
         using var workbook = new XLWorkbook();
         var metanoSheet = workbook.AddWorksheet("Metano");
         var dieselSheet = workbook.AddWorksheet("Diesel");
-        var benzinaSheet = workbook.AddWorksheet("Benzina");
+        // var benzinaSheet = workbook.AddWorksheet("Benzina");
 
         const string costColumnTitle = "Costo totale (Rifornimetni)";
         WriteSheetHeader(metanoSheet, "Litri Gasolio (GA)", "Kg totali (Rifornimetni)", costColumnTitle);
         WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali (Rifornimetni)", costColumnTitle);
-        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali (Rifornimetni)", costColumnTitle); FormatNumberColumns(metanoSheet);
+        // WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali (Rifornimetni)", costColumnTitle);
+        FormatNumberColumns(metanoSheet);
         FormatNumberColumns(dieselSheet);
-        FormatNumberColumns(benzinaSheet);
+        // FormatNumberColumns(benzinaSheet);
 
         var orderedVehicles = consumptions
             .Select(pair => pair.Value)
@@ -296,7 +297,7 @@ internal static class Program
 
         var currentRowMetano = 2;
         var currentRowDiesel = 2;
-        var currentRowBenzina = 2;
+        // var currentRowBenzina = 2;
 
         foreach (var vehicle in orderedVehicles)
         {
@@ -316,10 +317,14 @@ internal static class Program
                 aggregateFuel = fuelByTarga;
             }
 
-            var averageConsumption = vehicle.AverageConsumption;
             var totalKmForAverage = vehicle.TotalKm;
             var totalKm = vehicle.HasKmData ? (double?)vehicle.TotalKm : null;
             var totalConsumptionLiters = vehicle.HasConsumptionLiters ? (double?)vehicle.TotalConsumptionLiters : null;
+            double? transicsAverage = null;
+            if (totalKm.HasValue && totalConsumptionLiters.HasValue && totalConsumptionLiters.Value != 0)
+            {
+                transicsAverage = totalKm.Value / totalConsumptionLiters.Value;
+            }
 
             if (string.Equals(fuelType, "ME", StringComparison.OrdinalIgnoreCase))
             {
@@ -358,7 +363,7 @@ internal static class Program
                     metanoSheet,
                     currentRowMetano++,
                     vehicle.DisplayName,
-                    averageConsumption,
+                    transicsAverage,
                     metanoAverage,
                     otherFuelValue,
                     totalKm,
@@ -405,7 +410,7 @@ internal static class Program
                     dieselSheet,
                     currentRowDiesel++,
                     vehicle.DisplayName,
-                    averageConsumption,
+                    transicsAverage,
                     dieselAverage,
                     adBlueValue,
                     totalKm,
@@ -415,49 +420,49 @@ internal static class Program
                 continue;
             }
 
-            if (string.Equals(fuelType, "BE", StringComparison.OrdinalIgnoreCase))
-            {
-                double? benzinaAverage = null;
-                double? benzinaTotal = null;
-                double? benzinaCostValue = null;
-
-                if (aggregateFuel is not null)
-                {
-                    var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
-                    if (totalKmForAverage > 0 && benzinaLiters > 0)
-                    {
-                        benzinaAverage = totalKmForAverage / benzinaLiters;
-                    }
-
-                    if (benzinaLiters > 0)
-                    {
-                        benzinaTotal = benzinaLiters;
-                    }
-
-                    var benzinaCost = aggregateFuel.GetTotalCost(BenzinaProduct);
-                    if (benzinaCost > 0)
-                    {
-                        benzinaCostValue = benzinaCost;
-                    }
-                }
-
-                WriteRow(
-                    benzinaSheet,
-                    currentRowBenzina++,
-                    vehicle.DisplayName,
-                    averageConsumption,
-                    benzinaAverage,
-                    null,
-                    totalKm,
-                    totalConsumptionLiters,
-                    benzinaTotal,
-                    benzinaCostValue);
-            }
+            // if (string.Equals(fuelType, "BE", StringComparison.OrdinalIgnoreCase))
+            // {
+            //     double? benzinaAverage = null;
+            //     double? benzinaTotal = null;
+            //     double? benzinaCostValue = null;
+            //
+            //     if (aggregateFuel is not null)
+            //     {
+            //         var benzinaLiters = aggregateFuel.GetTotalLiters(BenzinaProduct);
+            //         if (totalKmForAverage > 0 && benzinaLiters > 0)
+            //         {
+            //             benzinaAverage = totalKmForAverage / benzinaLiters;
+            //         }
+            //
+            //         if (benzinaLiters > 0)
+            //         {
+            //             benzinaTotal = benzinaLiters;
+            //         }
+            //
+            //         var benzinaCost = aggregateFuel.GetTotalCost(BenzinaProduct);
+            //         if (benzinaCost > 0)
+            //         {
+            //             benzinaCostValue = benzinaCost;
+            //         }
+            //     }
+            //
+            //     WriteRow(
+            //         benzinaSheet,
+            //         currentRowBenzina++,
+            //         vehicle.DisplayName,
+            //         transicsAverage,
+            //         benzinaAverage,
+            //         null,
+            //         totalKm,
+            //         totalConsumptionLiters,
+            //         benzinaTotal,
+            //         benzinaCostValue);
+            // }
         }
 
         metanoSheet.Columns().AdjustToContents();
         dieselSheet.Columns().AdjustToContents();
-        benzinaSheet.Columns().AdjustToContents();
+        // benzinaSheet.Columns().AdjustToContents();
 
         workbook.SaveAs(outputPath);
     }
