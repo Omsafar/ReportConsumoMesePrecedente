@@ -282,10 +282,10 @@ internal static class Program
         var dieselSheet = workbook.AddWorksheet("Diesel");
         // var benzinaSheet = workbook.AddWorksheet("Benzina");
 
-        const string costColumnTitle = "Costo totale (Rifornimetni)";
-        WriteSheetHeader(metanoSheet, "Litri Gasolio (GA)", "Kg totali (Rifornimetni)", costColumnTitle);
-        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali (Rifornimetni)", costColumnTitle);
-        // WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali (Rifornimetni)", costColumnTitle);
+        const string costColumnTitle = "Costo totale (Rifornimenti)";
+        WriteSheetHeader(metanoSheet, "Litri Gasolio (GA)", "Kg totali (Rifornimenti)", costColumnTitle);
+        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali (Rifornimenti)", costColumnTitle);
+        // WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali (Rifornimenti)", costColumnTitle);
         FormatNumberColumns(metanoSheet);
         FormatNumberColumns(dieselSheet);
         // FormatNumberColumns(benzinaSheet);
