@@ -282,10 +282,10 @@ internal static class Program
         var dieselSheet = workbook.AddWorksheet("Diesel");
         var benzinaSheet = workbook.AddWorksheet("Benzina");
 
-        const string costColumnTitle = "Costo totale rifornimenti (Risorse)";
-        WriteSheetHeader(metanoSheet, "Litri Benzina (BE)", "Kg totali riforniti (Risorse)", costColumnTitle);
-        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali riforniti (Risorse)", costColumnTitle);
-        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali riforniti (Risorse)", costColumnTitle); FormatNumberColumns(metanoSheet);
+        const string costColumnTitle = "Costo totale (Rifornimetni)";
+        WriteSheetHeader(metanoSheet, "Litri Gasolio (GA)", "Kg totali (Rifornimetni)", costColumnTitle);
+        WriteSheetHeader(dieselSheet, "Litri AdBlue (AD)", "Litri totali (Rifornimetni)", costColumnTitle);
+        WriteSheetHeader(benzinaSheet, "Litri Extra", "Litri totali (Rifornimetni)", costColumnTitle); FormatNumberColumns(metanoSheet);
         FormatNumberColumns(dieselSheet);
         FormatNumberColumns(benzinaSheet);
 
@@ -486,14 +486,14 @@ internal static class Program
         string costColumnTitle)
     {
         sheet.Cell(1, 1).Value = "Veicolo";
-        sheet.Cell(1, 2).Value = "Media km/l (DatiConsumo)";
+        sheet.Cell(1, 2).Value = "Media km/l (Transics)";
         sheet.Cell(1, 3).Value = "Consumo medio rifornimenti (km/l)";
         if (!string.IsNullOrEmpty(extraColumnTitle))
         {
             sheet.Cell(1, 4).Value = extraColumnTitle;
         }
-        sheet.Cell(1, 5).Value = "Km totali (DatiConsumo)";
-        sheet.Cell(1, 6).Value = "Litri totali (DatiConsumo)";
+        sheet.Cell(1, 5).Value = "Km totali (Transics)";
+        sheet.Cell(1, 6).Value = "Litri totali (Transics)";
         if (!string.IsNullOrEmpty(replenishmentTotalTitle))
         {
             sheet.Cell(1, 7).Value = replenishmentTotalTitle;
